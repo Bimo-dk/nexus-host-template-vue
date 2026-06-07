@@ -1,5 +1,4 @@
-import { reactive } from 'vue';
-import { defineAsyncComponent, type Component } from 'vue';
+import { reactive, defineComponent, h, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
 import type { Router } from 'vue-router';
 import { RegistryClient, RegistryWebSocket } from '@bimo-dk/nexus-client';
 import { loadRemoteModule } from '@softarc/native-federation-runtime';
@@ -26,6 +25,62 @@ export const nexus = reactive({
 
 const registered = new Set<string>();
 
+/**
+ * Generic wrapper component that hosts a remote. It owns a `<div>` and
+ * delegates rendering to the remote's `mount(el)` if present (Bring
+ * Your Own Framework — the remote brings its own Vue/React/Angular
+ * runtime and creates its own root), or falls back to rendering the
+ * default-exported Vue component for legacy remotes.
+ */
+function createRemoteHostComponent(remote: RemoteConfig): Component {
+  return defineComponent({
+    name: `RemoteHost:${remote.name}`,
+    setup() {
+      const containerRef = ref<HTMLElement | null>(null);
+      const legacyComp = ref<Component | null>(null);
+      const errorMsg = ref<string | null>(null);
+      let teardown: (() => void) | null = null;
+
+      onMounted(async () => {
+        try {
+          const mod = (await loadRemoteModule({
+            remoteEntry: remote.url,
+            exposedModule: remote.exposedModule,
+          })) as Record<string, unknown>;
+
+          if (typeof mod['mount'] === 'function' && containerRef.value) {
+            teardown = (mod['mount'] as (el: HTMLElement) => () => void)(containerRef.value);
+            return;
+          }
+
+          const fallback = (mod['default'] ?? Object.values(mod)[0]) as Component;
+          if (fallback) {
+            legacyComp.value = fallback;
+          } else {
+            errorMsg.value = 'Remote exposed neither mount() nor a default component';
+          }
+        } catch (err) {
+          errorMsg.value = err instanceof Error ? err.message : String(err);
+          nexus.failed.set(remote.name, errorMsg.value);
+        }
+      });
+
+      onBeforeUnmount(() => { teardown?.(); });
+
+      return () => {
+        if (errorMsg.value) {
+          return h('div', { style: 'padding:24px;color:#b91c1c;' }, [
+            h('strong', null, 'Remote failed to mount: '),
+            errorMsg.value,
+          ]);
+        }
+        if (legacyComp.value) return h(legacyComp.value);
+        return h('div', { ref: containerRef });
+      };
+    },
+  });
+}
+
 export function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): void {
   let added = false;
   for (const remote of remotes) {
@@ -33,15 +88,7 @@ export function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): v
     registered.add(remote.name);
     added = true;
 
-    const component = defineAsyncComponent({
-      loader: () =>
-        (loadRemoteModule({ remoteEntry: remote.url, exposedModule: remote.exposedModule }) as Promise<Record<string, unknown>>)
-          .then(mod => ({ default: (mod['default'] ?? Object.values(mod)[0]) as Component })),
-      onError(err) {
-        nexus.failed.set(remote.name, err instanceof Error ? err.message : String(err));
-      },
-    });
-
+    const component = createRemoteHostComponent(remote);
     router.addRoute({ path: `/${remote.routePath}`, component });
     nexus.remotes.push(remote);
   }
