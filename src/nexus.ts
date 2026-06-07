@@ -27,9 +27,11 @@ export const nexus = reactive({
 const registered = new Set<string>();
 
 export function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): void {
+  let added = false;
   for (const remote of remotes) {
     if (!remote.enabled || registered.has(remote.name)) continue;
     registered.add(remote.name);
+    added = true;
 
     const component = defineAsyncComponent({
       loader: () =>
@@ -43,6 +45,13 @@ export function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): v
     router.addRoute({ path: `/${remote.routePath}`, component });
     nexus.remotes.push(remote);
   }
+  // If we just added routes that match the current URL, re-navigate so
+  // Vue Router picks up the new route table. Deep-linking to /<routePath>
+  // before the registry payload arrives would otherwise stay on the
+  // unmatched-route placeholder forever.
+  if (added) {
+    void router.replace(router.currentRoute.value.fullPath);
+  }
 }
 
 export function connectRegistry(router: Router): void {
@@ -50,9 +59,18 @@ export function connectRegistry(router: Router): void {
   const ws = new RegistryWebSocket({ registryUrl, token });
 
   ws.onMessage(msg => {
-    if (msg.type === 'connected' || msg.type === 'registry_updated') {
+    // Registry sends 'welcome' on connect (with current remote list)
+    // and 'remotes_changed' on every subsequent change. The old
+    // ('connected' / 'registry_updated') names predate AUDIT_REPORT
+    // BUG-6 and only survived in the published @bimo-dk packages.
+    if (msg.type === 'welcome' || msg.type === 'remotes_changed') {
       nexus.online = true;
-      registerRemoteRoutes(router, msg.remotes);
+      // Defensive: published @bimo-dk/nexus-client@0.1.0 surfaced an
+      // alternate payload shape that produced `undefined` here, which
+      // crashed the host on the first WS frame. Skip gracefully.
+      if (Array.isArray(msg.remotes)) {
+        registerRemoteRoutes(router, msg.remotes);
+      }
     }
   });
 
