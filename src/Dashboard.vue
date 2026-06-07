@@ -1,57 +1,106 @@
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import { defineAsyncComponent } from 'vue';
 import { nexus } from './nexus';
+import RemoteSlot from './RemoteSlot.vue';
+
+const productsCount = 6;
 </script>
 
 <template>
-  <section class="dashboard">
-    <h2>Welcome to the Nexus host shell</h2>
-    <p class="lead">Select a remote in the sidebar to load a micro frontend.</p>
+  <section class="shop">
+    <header class="hero">
+      <div class="hero-text">
+        <span class="kicker">Nexus Vue Shop</span>
+        <h1>Cross-framework retail demo</h1>
+        <p class="lead">
+          Every product card, cart widget and checkout panel below is loaded from a separate
+          remote via Module Federation. Vue, React, and Angular components all render in the
+          same shop without sharing a runtime — that's the Bring-Your-Own-Framework pattern.
+        </p>
+      </div>
+      <aside class="hero-stats">
+        <div class="stat">
+          <span class="stat-label">Loaded remotes</span>
+          <strong>{{ nexus.remotes.length }}</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Failed</span>
+          <strong :class="nexus.failed.size > 0 ? 'down' : 'ok'">{{ nexus.failed.size }}</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Registry</span>
+          <strong :class="nexus.online ? 'ok' : 'down'">{{ nexus.online ? 'live' : 'offline' }}</strong>
+        </div>
+      </aside>
+    </header>
 
     <div v-if="nexus.remotes.length === 0" class="empty">
       <h3>No remotes registered yet</h3>
-      <p>
-        Host receives updates via WebSocket. Add a remote via the portal at
-        <code>http://localhost:8669</code>.
-      </p>
+      <p>Add one via the portal at <a href="http://localhost:8669">localhost:8669</a>.</p>
     </div>
 
     <template v-else>
-      <div class="stats">
-        <article class="card">
-          <span class="label">Loaded remotes</span>
-          <strong>{{ nexus.remotes.length }}</strong>
-        </article>
-        <article class="card">
-          <span class="label">Failed remotes</span>
-          <strong>{{ nexus.failed.size }}</strong>
-        </article>
-        <article class="card">
-          <span class="label">Registry</span>
-          <strong :class="nexus.online ? 'online' : 'offline'">
-            {{ nexus.online ? 'Online' : 'Offline (cache)' }}
-          </strong>
+      <h2 class="section-title">Featured products</h2>
+      <div class="product-grid">
+        <article v-for="(r, i) in nexus.remotes.slice(0, productsCount)" :key="r.name + i" class="product">
+          <div class="product-image" :style="{ background: tints[i % tints.length] }">
+            <span class="badge">{{ r.framework || 'remote' }}</span>
+          </div>
+          <h3>{{ r.name }} entry</h3>
+          <p class="price">$ {{ (29 + i * 7).toFixed(2) }}</p>
+          <RemoteSlot :remote="r" compact />
         </article>
       </div>
 
-      <h3>Available remotes</h3>
-      <ul class="remote-list">
-        <li v-for="r in nexus.remotes" :key="r.name">
-          <RouterLink :to="`/${r.routePath}`">
+      <h2 class="section-title">Live demo of each remote</h2>
+      <div class="demo-stack">
+        <article v-for="r in nexus.remotes" :key="`demo:${r.name}`" class="demo">
+          <header>
             <strong>{{ r.name }}</strong>
             <code>/{{ r.routePath }}</code>
-          </RouterLink>
-        </li>
-      </ul>
+            <span class="fw" :class="`fw-${r.framework}`">{{ r.framework }}</span>
+          </header>
+          <RemoteSlot :remote="r" />
+        </article>
+      </div>
     </template>
   </section>
 </template>
 
+<script lang="ts">
+const tints = [
+  'linear-gradient(135deg, #6366f1, #818cf8)',
+  'linear-gradient(135deg, #ec4899, #f472b6)',
+  'linear-gradient(135deg, #10b981, #34d399)',
+  'linear-gradient(135deg, #f59e0b, #fbbf24)',
+  'linear-gradient(135deg, #06b6d4, #67e8f9)',
+  'linear-gradient(135deg, #8b5cf6, #c4b5fd)',
+];
+export default { tints };
+</script>
+
 <style scoped>
-.dashboard { padding: 8px; }
-h2 { margin: 0 0 4px; color: var(--host-text); }
-.lead { color: var(--host-text-muted); margin: 0 0 24px; }
-h3 { margin: 24px 0 12px; font-size: 16px; color: var(--host-text); }
+.shop { padding: 0 8px 24px; }
+.hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  padding: 28px;
+  background: linear-gradient(135deg, #1e1b4b 0%, #3730a3 100%);
+  color: white;
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+.hero-text .kicker { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.8; }
+.hero-text h1 { margin: 4px 0 12px; font-size: 28px; font-weight: 700; }
+.hero-text .lead { max-width: 60ch; opacity: 0.9; line-height: 1.5; }
+.hero-stats { display: flex; gap: 16px; }
+.stat { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 16px; min-width: 100px; }
+.stat-label { display: block; font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; }
+.stat strong { font-size: 22px; }
+.stat .ok { color: #6ee7b7; }
+.stat .down { color: #fda4af; }
+
 .empty {
   padding: 32px;
   background: var(--host-surface);
@@ -60,34 +109,71 @@ h3 { margin: 24px 0 12px; font-size: 16px; color: var(--host-text); }
   text-align: center;
   color: var(--host-text-muted);
 }
-.empty h3 { margin: 0 0 8px; color: var(--host-text); }
-.empty code { background: #eef2ff; padding: 2px 6px; border-radius: 4px; color: var(--host-primary-dark); }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.card {
+
+.section-title {
+  margin: 32px 0 16px;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--host-text-muted);
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.product {
   background: var(--host-surface);
   border: 1px solid var(--host-border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 14px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-.card .label { font-size: 12px; color: var(--host-text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.card strong { font-size: 24px; margin-top: 4px; }
-.card strong.online { color: var(--health-healthy); }
-.card strong.offline { color: var(--health-down); }
-.remote-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-.remote-list a {
+.product-image {
+  aspect-ratio: 1.4;
+  position: relative;
+}
+.product-image .badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.product h3 { margin: 12px 16px 4px; font-size: 14px; }
+.product .price { margin: 0 16px 12px; color: var(--host-primary-dark); font-weight: 700; }
+
+.demo-stack { display: grid; gap: 16px; }
+.demo {
+  background: var(--host-surface);
+  border: 1px solid var(--host-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.demo > header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: var(--host-surface);
-  border: 1px solid var(--host-border);
-  border-radius: 10px;
-  color: var(--host-text);
-  text-decoration: none;
-  transition: border-color 0.15s;
+  padding: 14px 18px;
+  background: #eef2ff;
+  border-bottom: 1px solid var(--host-border);
 }
-.remote-list a:hover { border-color: var(--host-primary); }
-.remote-list code { color: var(--host-text-muted); font-size: 13px; margin-left: auto; }
+.demo > header code { color: var(--host-text-muted); font-size: 12px; }
+.demo .fw {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.demo .fw-angular { background: #fee2e2; color: #b91c1c; }
+.demo .fw-vue { background: #dcfce7; color: #14532d; }
+.demo .fw-react { background: #dbeafe; color: #1e40af; }
 </style>
