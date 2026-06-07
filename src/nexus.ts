@@ -1,7 +1,7 @@
 import { reactive, defineComponent, h, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
 import type { Router } from 'vue-router';
 import { RegistryClient, RegistryWebSocket } from '@bimo-dk/nexus-client';
-import { loadRemoteModule } from '@softarc/native-federation-runtime';
+import { initFederation, loadRemoteModule } from '@softarc/native-federation-runtime';
 import type { RemoteConfig } from '@bimo-dk/nexus-core';
 
 declare global {
@@ -81,7 +81,31 @@ function createRemoteHostComponent(remote: RemoteConfig): Component {
   });
 }
 
-export function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): void {
+/**
+ * Initialise the native-federation share scope for the remotes the
+ * registry hands us. Remotes built with framework-aware federation
+ * (an Angular remote with `shareAll()` of `@angular/core`, etc.) emit
+ * chunks with bare specifier imports — those imports can only resolve
+ * after `initFederation` has populated the import map from the
+ * remote's manifest. Skip if no new remote is present.
+ */
+async function initRemoteScope(remotes: RemoteConfig[]): Promise<void> {
+  const novel = remotes.filter((r) => r.enabled && !registered.has(r.name));
+  if (novel.length === 0) return;
+  const map: Record<string, string> = {};
+  for (const r of novel) map[r.name] = r.url;
+  try {
+    await initFederation(map);
+  } catch (err) {
+    // initFederation throws if a manifest is unreachable; surface but
+    // don't crash the host — the BYOF mount path still works for
+    // remotes that fully bundle their runtime.
+    console.warn('[nexus] initFederation failed for some remotes:', err);
+  }
+}
+
+export async function registerRemoteRoutes(router: Router, remotes: RemoteConfig[]): Promise<void> {
+  await initRemoteScope(remotes);
   let added = false;
   for (const remote of remotes) {
     if (!remote.enabled || registered.has(remote.name)) continue;
